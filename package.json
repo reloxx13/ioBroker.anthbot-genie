@@ -66,6 +66,6 @@
     "@iobroker/types": "^6.0.11",
     "@tsconfig/node22": "^22.0.5",
     "@types/node": "^22.19.20",
-    "typescript": "~5.9.3"
+    "typescript": "~6.0.3"
   }
 }
