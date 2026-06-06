@@ -63,7 +63,7 @@
     "@iobroker/adapter-dev": "^1.5.0",
     "@iobroker/eslint-config": "^2.3.4",
     "@iobroker/testing": "^5.2.2",
-    "@iobroker/types": "^6.0.11",
+    "@iobroker/types": "^7.1.2",
     "@tsconfig/node22": "^22.0.5",
     "@types/node": "^22.19.20",
     "typescript": "~5.9.3"
