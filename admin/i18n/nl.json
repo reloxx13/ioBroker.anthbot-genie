@@ -7,5 +7,9 @@
     "Examples: 49 for Germany, 32 for Belgium, 1 for US/Canada": "Voorbeelden: 49 voor Duitsland, 32 voor België, 1 voor VS/Canada",
     "Language used for Anthbot cloud error descriptions": "Taal voor Anthbot-cloudfoutbeschrijvingen",
     "Poll interval in seconds": "Pollinginterval in seconden",
-    "The email address associated with your Anthbot account": "Het e-mailadres dat aan uw Anthbot-account is gekoppeld"
+    "The email address associated with your Anthbot account": "Het e-mailadres dat aan uw Anthbot-account is gekoppeld",
+    "Fetch map (high CPU usage)": "Kaart ophalen (hoog CPU-gebruik)",
+    "Download and render map images, RTK mask, and historical mowing path": "Kaartafbeeldingen, RTK-masker en historisch maaipad downloaden en renderen",
+    "Generate map with paths (even higher CPU usage)": "Kaart met paden genereren (nog hoger CPU-gebruik)",
+    "Download and render the historical mowing path in the map image": "Het historische maaipad in de kaartafbeelding downloaden en renderen"
 }

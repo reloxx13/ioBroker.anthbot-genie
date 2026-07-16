@@ -7,5 +7,9 @@
     "Examples: 49 for Germany, 32 for Belgium, 1 for US/Canada": "Exemplos: 49 para Alemanha, 32 para Bélgica, 1 para EUA/Canadá",
     "Language used for Anthbot cloud error descriptions": "Idioma usado para descrições de erro da nuvem Anthbot",
     "Poll interval in seconds": "Intervalo de consulta em segundos",
-    "The email address associated with your Anthbot account": "O endereço de e-mail associado à sua conta Anthbot"
+    "The email address associated with your Anthbot account": "O endereço de e-mail associado à sua conta Anthbot",
+    "Fetch map (high CPU usage)": "Obter mapa (alto uso de CPU)",
+    "Download and render map images, RTK mask, and historical mowing path": "Baixar e renderizar imagens do mapa, máscara RTK e caminho histórico de corte",
+    "Generate map with paths (even higher CPU usage)": "Gerar mapa com caminhos (uso de CPU ainda maior)",
+    "Download and render the historical mowing path in the map image": "Baixar e renderizar o caminho histórico de corte na imagem do mapa"
 }

@@ -178,6 +178,8 @@
     "areaCode": "49",
     "apiHost": "api.anthbot.com",
     "pollInterval": 60,
+    "fetchMap": false,
+    "generateMapWithPaths": false,
     "errorDescriptionLanguage": "English"
   },
   "objects": [

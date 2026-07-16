@@ -7,5 +7,9 @@
     "Examples: 49 for Germany, 32 for Belgium, 1 for US/Canada": "示例：德国为 49，比利时为 32，美国/加拿大为 1",
     "Language used for Anthbot cloud error descriptions": "用于 Anthbot 云端错误说明的语言",
     "Poll interval in seconds": "轮询间隔（秒）",
-    "The email address associated with your Anthbot account": "与您的 Anthbot 账户关联的电子邮件地址"
+    "The email address associated with your Anthbot account": "与您的 Anthbot 账户关联的电子邮件地址",
+    "Fetch map (high CPU usage)": "获取地图（高 CPU 使用率）",
+    "Download and render map images, RTK mask, and historical mowing path": "下载并渲染地图图像、RTK 遮罩和历史割草路径",
+    "Generate map with paths (even higher CPU usage)": "生成带路径的地图（更高的 CPU 使用率）",
+    "Download and render the historical mowing path in the map image": "在地图图像中下载并渲染历史割草路径"
 }
