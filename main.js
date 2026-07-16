@@ -105,7 +105,7 @@ class AnthbotGenieAdapter extends AdapterBase {
         this.subscribeStates('*.controls.*');
         this.subscribeStates('*.consumable.*.reset');
 
-        await this.refreshAll(true);
+        await this.refreshAll(true, true);
         this.schedulePoll();
     }
 
@@ -156,7 +156,7 @@ class AnthbotGenieAdapter extends AdapterBase {
         this.pollTimer = this.setTimeout(async () => {
             this.pollTimer = null;
             try {
-                await this.refreshAll();
+                await this.refreshAll(false, false);
             } finally {
                 if (!this.unloaded) {
                     this.schedulePoll();
@@ -165,21 +165,21 @@ class AnthbotGenieAdapter extends AdapterBase {
         }, intervalSeconds * 1000);
     }
 
-    async refreshAll(forceLogin = false) {
+    async refreshAll(forceLogin = false, readService = false) {
         if (this.refreshInFlight) {
             return this.refreshInFlight;
         }
-        this.refreshInFlight = this.doRefreshAll(forceLogin).finally(() => {
+        this.refreshInFlight = this.doRefreshAll(forceLogin, readService).finally(() => {
             this.refreshInFlight = null;
         });
         return this.refreshInFlight;
     }
 
-    async doRefreshAll(forceLogin = false) {
-        return this.runRefreshCycle(forceLogin, false);
+    async doRefreshAll(forceLogin = false, readService = false) {
+        return this.runRefreshCycle(forceLogin, false, readService);
     }
 
-    async runRefreshCycle(forceLogin, retriedAfterAuthFailure) {
+    async runRefreshCycle(forceLogin, retriedAfterAuthFailure, readService) {
         let successful = 0;
         try {
             await this.ensureSession(forceLogin);
@@ -187,7 +187,7 @@ class AnthbotGenieAdapter extends AdapterBase {
             await this.ensureEventCodeCache();
             for (const context of this.deviceContexts.values()) {
                 try {
-                    await this.refreshDevice(context);
+                    await this.refreshDevice(context, { readService });
                     successful += 1;
                 } catch (error) {
                     this.log.warn(`Refresh failed for ${context.device.serialNumber}: ${error.message}`);
@@ -196,7 +196,7 @@ class AnthbotGenieAdapter extends AdapterBase {
         } catch (error) {
             if (!retriedAfterAuthFailure && !forceLogin && isLikelyAuthenticationError(error)) {
                 this.log.info('Anthbot cloud session expired, retrying refresh with a new login.');
-                return this.runRefreshCycle(true, true);
+                return this.runRefreshCycle(true, true, readService);
             }
             this.log.error(`Global refresh failed: ${error.message}`);
         }
@@ -469,20 +469,40 @@ class AnthbotGenieAdapter extends AdapterBase {
         }
     }
 
-    async refreshDevice(context) {
+    async refreshDevice(context, { readService = false } = {}) {
         await this.ensureDeviceIotCredentials(context);
         if (!context.shadowClient) {
             throw new AnthbotGenieError(
                 `Skipping ${context.device.serialNumber}: temporary IoT credentials are unavailable for shadow access`,
             );
         }
-        const propertyState = await context.shadowClient.getShadowReportedState();
-        let serviceState = {};
+        let propertyState;
         try {
-            serviceState = await context.shadowClient.getServiceReportedState();
+            propertyState = await context.shadowClient.getShadowReportedState();
         } catch (error) {
-            this.log.debug(`Service shadow failed for ${context.device.serialNumber}: ${error.message}`);
+            this.log.debug(`Property shadow failed for ${context.device.serialNumber}: ${error.message}`);
+            throw error;
         }
+
+        let serviceReadAttempted = false;
+        let serviceState = context.lastService || {};
+        const readServiceShadow = async () => {
+            if (serviceReadAttempted) {
+                return serviceState;
+            }
+            serviceReadAttempted = true;
+            try {
+                const reported = await context.shadowClient.getServiceReportedState();
+                if (reported && typeof reported === 'object' && !Array.isArray(reported)) {
+                    context.lastService = reported;
+                    serviceState = reported;
+                }
+            } catch (error) {
+                this.log.debug(`Service shadow failed for ${context.device.serialNumber}: ${error.message}`);
+                serviceState = context.lastService || {};
+            }
+            return serviceState;
+        };
 
         const areaTime = this.mapVersion(propertyState.area_time);
         const shouldRefreshArea =
@@ -510,8 +530,10 @@ class AnthbotGenieAdapter extends AdapterBase {
 
         if (!isMapFetchingEnabled(this.anthbotConfig.fetchMap)) {
             this.clearMapContext(context);
+            if (readService) {
+                await readServiceShadow();
+            }
             context.lastReported = propertyState;
-            context.lastService = serviceState;
             await this.updateStates(context, {
                 ...propertyState,
                 _service_reported: serviceState,
@@ -565,10 +587,15 @@ class AnthbotGenieAdapter extends AdapterBase {
 
         const generateMapWithPaths = isMapPathGenerationEnabled(this.anthbotConfig.generateMapWithPaths);
         this.logMissingRobotIcon(context, generateMapWithPaths);
-        const historyPath = generateMapWithPaths ? await this.refreshHistoryPath(context, propertyState) : [];
+        const historyPath = generateMapWithPaths
+            ? await this.refreshHistoryPath(context, propertyState, readServiceShadow)
+            : [];
+
+        if (readService && !serviceReadAttempted) {
+            await readServiceShadow();
+        }
 
         context.lastReported = propertyState;
-        context.lastService = serviceState;
 
         const merged = {
             ...propertyState,
@@ -641,9 +668,10 @@ class AnthbotGenieAdapter extends AdapterBase {
      *
      * @param {object} context
      * @param {object} propertyState
+     * @param {(() => Promise<unknown>)|undefined} [afterServiceCommand]
      * @returns {Promise<{ x: number, y: number, flag: number }[]>}
      */
-    async refreshHistoryPath(context, propertyState) {
+    async refreshHistoryPath(context, propertyState, afterServiceCommand) {
         const pathKey = this.historyPathKey(propertyState);
         if (Array.isArray(context.historyPath) && context.lastHistoryPathKey === pathKey) {
             return context.historyPath;
@@ -664,6 +692,9 @@ class AnthbotGenieAdapter extends AdapterBase {
                 cmd: 'req_history_mapping_path',
                 data: { start_pos: 0 },
             });
+            if (afterServiceCommand) {
+                await afterServiceCommand();
+            }
 
             for (let attempt = 0; attempt < 3; attempt++) {
                 const pathFile = await this.cloudClient.getDeviceHistoryPath(context.device.serialNumber);
@@ -783,21 +814,24 @@ class AnthbotGenieAdapter extends AdapterBase {
         }
 
         let commandError = null;
+        let commandProcessed = false;
         try {
             if (section === 'commands') {
-                await this.handleCommandState(context, command, state.val);
+                commandProcessed = await this.handleCommandState(context, command, state.val);
             } else if (section === 'controls') {
-                await this.handleControlState(context, command, state.val);
+                commandProcessed = await this.handleControlState(context, command, state.val);
             } else if (section === 'consumable') {
-                await this.handleConsumableState(context, command, state.val);
+                commandProcessed = await this.handleConsumableState(context, command, state.val);
             }
         } catch (error) {
             commandError = error;
         } finally {
-            try {
-                await this.refreshDevice(context);
-            } catch (refreshError) {
-                this.log.warn(`Post-command refresh failed for ${id}: ${refreshError.message}`);
+            if (commandProcessed) {
+                try {
+                    await this.refreshDevice(context, { readService: true });
+                } catch (refreshError) {
+                    this.log.warn(`Post-command refresh failed for ${id}: ${refreshError.message}`);
+                }
             }
             await this.resetWriteState(id, section, command, context);
         }
@@ -835,7 +869,7 @@ class AnthbotGenieAdapter extends AdapterBase {
         const shouldRun =
             value === true || value === 1 || value === 'true' || (typeof value === 'string' && value.trim() !== '');
         if (!shouldRun) {
-            return;
+            return false;
         }
 
         await this.ensureDeviceIotCredentials(context);
@@ -844,28 +878,31 @@ class AnthbotGenieAdapter extends AdapterBase {
             await context.shadowClient.requestAllProperties();
         }
         await this.delay(1000);
+        return true;
     }
 
     async handleControlState(context, control, value) {
         if (value === null || value === undefined || value === '') {
-            return;
+            return false;
         }
 
         await this.ensureDeviceIotCredentials(context);
         await this.executeControl(context, control, value);
         await context.shadowClient.requestAllProperties();
         await this.delay(1000);
+        return true;
     }
 
     async handleConsumableState(context, command, value) {
         const shouldRun = value === true || value === 1 || value === 'true';
         if (!shouldRun) {
-            return;
+            return false;
         }
 
         await this.ensureDeviceIotCredentials(context);
         await this.executeConsumableCommand(context, command);
         await this.delay(1000);
+        return true;
     }
 
     async executeCommand(context, command, value) {
@@ -887,6 +924,7 @@ class AnthbotGenieAdapter extends AdapterBase {
 
 if (require.main !== module) {
     module.exports = options => new AnthbotGenieAdapter(options);
+    module.exports.AnthbotGenieAdapter = AnthbotGenieAdapter;
 } else {
     new AnthbotGenieAdapter();
 }

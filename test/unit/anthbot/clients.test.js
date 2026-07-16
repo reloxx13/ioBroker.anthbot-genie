@@ -298,6 +298,36 @@ describe("lib/anthbot clients", () => {
         assert.equal(refreshCount, 1);
     });
 
+    it("does not retry or refresh credentials after a shadow 429", async () => {
+        let getCount = 0;
+        let refreshCount = 0;
+        const client = new AnthbotShadowApiClient({
+            http: {
+                get: async () => {
+                    getCount += 1;
+                    return {
+                        status: 429,
+                        data: { message: "TOO_MANY_REQUESTS" },
+                    };
+                },
+            },
+            serialNumber: "SERIAL123",
+            regionName: "eu-central-1",
+            iotEndpoint: "a.example.iot.eu-central-1.amazonaws.com",
+            accountClient: {
+                getDeviceIotCredentials: async () => {
+                    refreshCount += 1;
+                    return tempCredentials;
+                },
+            },
+            iotCredentials: tempCredentials,
+        });
+
+        await assert.rejects(client.getNamedShadowReportedState("property"), /Shadow request failed \(429\)/);
+        assert.equal(getCount, 1);
+        assert.equal(refreshCount, 0);
+    });
+
     it("reads the actual service shadow for M-series devices", async () => {
         const urls = [];
         const client = new AnthbotShadowApiClient({

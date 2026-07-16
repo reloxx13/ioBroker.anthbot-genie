@@ -112,6 +112,7 @@
       "type": "checkbox",
       "label": "Fetch map (high CPU usage)",
       "help": "Download and render map images, RTK mask, and historical mowing path",
+      "newLine": true,
       "xs": 6,
       "sm": 6,
       "md": 6,
