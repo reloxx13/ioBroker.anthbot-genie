@@ -344,7 +344,9 @@ class AnthbotGenieAdapter extends AdapterBase {
                 areaDefinition: existing?.areaDefinition || {},
                 lastAreaTime: existing?.lastAreaTime || null,
                 lastMapVersion: existing?.lastMapVersion || null,
+                lastMapMetadataVersion: existing?.lastMapMetadataVersion || null,
                 mapRaster: existing?.mapRaster || null,
+                mapMetadata: existing?.mapMetadata || null,
                 mapImageCache: existing?.mapImageCache || null,
                 historyPath: existing?.historyPath || null,
                 lastHistoryPathKey: existing?.lastHistoryPathKey || null,
@@ -508,7 +510,19 @@ class AnthbotGenieAdapter extends AdapterBase {
             }
         }
 
+        const mapFile = this.mapFileInfo(propertyState);
+        const mapVersion =
+            [
+                this.mapVersion(propertyState.map_tar_time),
+                this.mapVersion(propertyState.map_time),
+                mapFile.mapFileName,
+                mapFile.md5,
+            ]
+                .filter(Boolean)
+                .join('|') || null;
+
         if (!isMapFetchingEnabled(this.anthbotConfig.fetchMap)) {
+            await this.refreshMapMetadata(context, mapFile.mapFileName, mapVersion);
             this.clearMapContext(context);
             context.lastReported = propertyState;
             context.lastService = serviceState;
@@ -520,16 +534,6 @@ class AnthbotGenieAdapter extends AdapterBase {
             return;
         }
 
-        const mapFile = this.mapFileInfo(propertyState);
-        const mapVersion =
-            [
-                this.mapVersion(propertyState.map_tar_time),
-                this.mapVersion(propertyState.map_time),
-                mapFile.mapFileName,
-                mapFile.md5,
-            ]
-                .filter(Boolean)
-                .join('|') || null;
         const shouldRefreshMap = !context.mapRaster || mapVersion !== context.lastMapVersion;
         if (shouldRefreshMap) {
             try {
@@ -542,7 +546,9 @@ class AnthbotGenieAdapter extends AdapterBase {
                     throw new AnthbotGenieError('Native map archive did not contain a valid navigation raster');
                 }
                 context.mapRaster = mapRaster;
+                context.mapMetadata = mapRaster.metadata;
                 context.lastMapVersion = mapVersion;
+                context.lastMapMetadataVersion = mapVersion;
             } catch (error) {
                 if (isLikelyAuthenticationError(error)) {
                     await this.ensureSession(true);
@@ -555,7 +561,9 @@ class AnthbotGenieAdapter extends AdapterBase {
                         throw new AnthbotGenieError('Native map archive did not contain a valid navigation raster');
                     }
                     context.mapRaster = mapRaster;
+                    context.mapMetadata = mapRaster.metadata;
                     context.lastMapVersion = mapVersion;
+                    context.lastMapMetadataVersion = mapVersion;
                 } else {
                     this.log.debug(`Map refresh failed for ${context.device.serialNumber}: ${error.message}`);
                 }
@@ -588,6 +596,49 @@ class AnthbotGenieAdapter extends AdapterBase {
             ],
         });
         await this.updateStates(context, merged);
+    }
+
+    /**
+     * Refresh only the map metadata needed for charger coordinates. This keeps
+     * charger states available when PNG map generation is disabled.
+     *
+     * @param {object} context
+     * @param {string|null} mapFileName
+     * @param {string|null} mapVersion
+     * @returns {Promise<void>}
+     */
+    async refreshMapMetadata(context, mapFileName, mapVersion) {
+        if (context.mapMetadata && context.lastMapMetadataVersion === mapVersion) {
+            return;
+        }
+
+        const fetchMetadata = async () => {
+            const mapArchive = await this.cloudClient.getDeviceMapArchive(context.device.serialNumber, mapFileName);
+            const mapRaster = extractMapRasterFromArchive(mapArchive);
+            if (!mapRaster) {
+                throw new AnthbotGenieError('Native map archive did not contain valid map metadata');
+            }
+            return mapRaster.metadata;
+        };
+
+        try {
+            context.mapMetadata = await fetchMetadata();
+            context.lastMapMetadataVersion = mapVersion;
+        } catch (error) {
+            if (isLikelyAuthenticationError(error)) {
+                try {
+                    await this.ensureSession(true);
+                    context.mapMetadata = await fetchMetadata();
+                    context.lastMapMetadataVersion = mapVersion;
+                } catch (retryError) {
+                    this.log.debug(
+                        `Map metadata refresh failed for ${context.device.serialNumber}: ${retryError.message}`,
+                    );
+                }
+            } else {
+                this.log.debug(`Map metadata refresh failed for ${context.device.serialNumber}: ${error.message}`);
+            }
+        }
     }
 
     /**

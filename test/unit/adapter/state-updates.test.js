@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 
 const {
     buildDeviceStateUpdates,
+    chargerPointInMeters,
     getControlFallbackValue,
     mowerPoseInMeters,
 } = require("../../../lib/adapter/state-updates");
@@ -303,5 +304,31 @@ describe("lib/adapter/state-updates", () => {
         assert.equal(withoutPath["map.image"], "data:image/png;base64,full");
         assert.equal(withoutPath["map.imageWithRtkMask"], "data:image/png;base64,mask");
         assert.equal(Object.hasOwn(withoutPath, "map.imageWithMowedPath"), false);
+    });
+
+    it("publishes charger coordinates from cached metadata without a rendered map", () => {
+        const context = {
+            device: { alias: "Garden", model: "Anthbot Genie 600" },
+            region: { regionName: "eu-central-1" },
+            shadowClient: { iotEndpoint: "a.example.iot.eu-central-1.amazonaws.com" },
+            lastReported: {},
+            lastService: {},
+            areaDefinition: {},
+            mapMetadata: {
+                charger_point: { x: -728, y: 388 },
+            },
+        };
+        const updates = buildDeviceStateUpdates({
+            context,
+            data: {},
+            eventCodeCache: null,
+            errorDescriptionLanguage: "English",
+            now: new Date("2026-07-16T12:00:00.000Z"),
+            includeMapImages: false,
+        });
+
+        assert.deepEqual(chargerPointInMeters(context), { x: -0.728, y: 0.388 });
+        assert.equal(updates["location.charger.x"], -0.728);
+        assert.equal(updates["location.charger.y"], 0.388);
     });
 });
