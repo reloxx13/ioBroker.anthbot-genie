@@ -9,6 +9,10 @@ const {
     renderMapImage,
     renderMapImageWithRtkMask,
     renderMapImageWithMowedPath,
+    getRobotIconAssetName,
+    hasRobotIconAsset,
+    robotIconRotation,
+    rotateRgbaImage,
     updateMapImageCache,
 } = require('../../../lib/anthbot/map-renderer');
 
@@ -41,6 +45,7 @@ function mapArchive({
     xMin = -1.25,
     yMin = -2.5,
     mowedMap = null,
+    chargerPoint = null,
 } = {}) {
     const metadata = JSON.stringify({
         navi_map: {
@@ -50,6 +55,7 @@ function mapArchive({
             x_min: xMin,
             y_min: yMin,
         },
+        ...(chargerPoint ? { charger_point: chargerPoint } : {}),
     });
     return zlib.gzipSync(Buffer.concat([
         tarEntry('maps/remote_map_navi.map', Buffer.from(pixels)),
@@ -103,7 +109,34 @@ function readRenderedPixels(dataUri) {
     return { width, height, pixels };
 }
 
+function nonBackgroundBounds(rendered) {
+    const background = [236, 236, 246, 255];
+    const points = [];
+    rendered.pixels.forEach((pixel, index) => {
+        if (!pixel.every((value, channel) => value === background[channel])) {
+            points.push({ x: index % rendered.width, y: Math.floor(index / rendered.width) });
+        }
+    });
+    assert.notEqual(points.length, 0);
+    return {
+        width: Math.max(...points.map(point => point.x)) - Math.min(...points.map(point => point.x)) + 1,
+        height: Math.max(...points.map(point => point.y)) - Math.min(...points.map(point => point.y)) + 1,
+    };
+}
+
 describe('lib/anthbot/map-renderer', () => {
+    it('selects bundled app map icons by mower model and falls back for unknown models', () => {
+        assert.equal(getRobotIconAssetName('Anthbot Genie 600'), 'pic_device_map_genie.png');
+        assert.equal(getRobotIconAssetName('Anthbot M5'), 'icon_device_map_s2_rtk.png');
+        assert.equal(getRobotIconAssetName('Anthbot M9'), 'icon_device_map_m9pro.png');
+        assert.equal(getRobotIconAssetName('Anthbot S2'), 'icon_device_map_s2.png');
+        assert.equal(getRobotIconAssetName('Anthbot S3'), 'icon_device_map_s3.png');
+        assert.equal(getRobotIconAssetName('Anthbot S3 RTK'), 'icon_device_map_s3_rtk.png');
+        assert.equal(getRobotIconAssetName('Unknown mower'), null);
+        assert.equal(hasRobotIconAsset('Anthbot Genie 600'), true);
+        assert.equal(hasRobotIconAsset('Unknown mower'), false);
+    });
+
     it('extracts the native navigation raster from the multi_maps archive', () => {
         assert.deepEqual(extractMapRasterFromArchive(mapArchive()), {
             width: 2,
@@ -159,6 +192,130 @@ describe('lib/anthbot/map-renderer', () => {
         assert.deepEqual(rendered.pixels[1 * 4 + 2], [108, 120, 232, 255]);
         assert.deepEqual(rendered.pixels[0], [236, 236, 246, 255]);
         assert.notEqual(image, renderMapImage(mapRaster));
+    });
+
+    it('renders a robot icon at the mower pose in the historical path image', () => {
+        const mapRaster = extractMapRasterFromArchive(mapArchive({
+            width: 4,
+            height: 4,
+            pixels: Array(16).fill(0),
+            resolution: 0.5,
+            xMin: -1,
+            yMin: -1,
+        }));
+
+        const image = renderMapImageWithMowedPath(mapRaster, [], [], { x: 0, y: 0, yaw: 0 });
+        const rendered = readRenderedPixels(image);
+
+        assert.deepEqual(rendered.pixels[1 * 4 + 2], [250, 204, 21, 255]);
+    });
+
+    it('uses the bundled Genie map icon before the generated fallback icon', () => {
+        const mapRaster = extractMapRasterFromArchive(mapArchive({
+            width: 4,
+            height: 4,
+            pixels: Array(16).fill(0),
+            resolution: 0.5,
+            xMin: -1,
+            yMin: -1,
+        }));
+        const pose = { x: 0, y: 0, yaw: 0 };
+        const appImage = readRenderedPixels(renderMapImageWithMowedPath(mapRaster, [], [], pose, 'Anthbot Genie 600'));
+        const fallbackImage = readRenderedPixels(renderMapImageWithMowedPath(mapRaster, [], [], pose, 'Unknown mower'));
+
+        assert.notDeepEqual(appImage.pixels[1 * 4 + 2], [250, 204, 21, 255]);
+        assert.notDeepEqual(appImage.pixels, fallbackImage.pixels);
+    });
+
+    it('rotates a front-down icon clockwise for a negative image rotation', () => {
+        const pixels = Buffer.alloc(3 * 5 * 4);
+        pixels.set([255, 0, 0, 255], (4 * 3 + 1) * 4);
+
+        const rotated = rotateRgbaImage({ width: 3, height: 5, pixels }, -90);
+
+        assert.equal(rotated.width, 5);
+        assert.equal(rotated.height, 3);
+        assert.deepEqual([...rotated.pixels.subarray((1 * 5 + 4) * 4, (1 * 5 + 4) * 4 + 4)], [255, 0, 0, 255]);
+    });
+
+    it('maps the mower yaw convention to the front-down asset convention', () => {
+        assert.equal(robotIconRotation(-16), -106);
+        assert.equal(robotIconRotation(90), 0);
+        assert.equal(robotIconRotation(undefined), 0);
+    });
+
+    it('rotates the bundled map icon with the mower pose', () => {
+        const mapRaster = extractMapRasterFromArchive(mapArchive({
+            width: 120,
+            height: 120,
+            pixels: Array(120 * 120).fill(0),
+            resolution: 0.1,
+            xMin: -6,
+            yMin: -6,
+        }));
+
+        const frontDown = nonBackgroundBounds(
+            readRenderedPixels(renderMapImageWithMowedPath(mapRaster, [], [], { x: 0, y: 0, yaw: 90 }, 'Anthbot Genie 600')),
+        );
+        const frontRight = nonBackgroundBounds(
+            readRenderedPixels(
+                renderMapImageWithMowedPath(mapRaster, [], [], { x: 0, y: 0, yaw: -16 }, 'Anthbot Genie 600'),
+            ),
+        );
+
+        assert.ok(frontDown.height > frontDown.width);
+        assert.ok(frontDown.height <= 36);
+        assert.ok(frontRight.width > frontRight.height);
+    });
+
+    it('keeps the generated fallback front aligned with the bundled icons', () => {
+        const mapRaster = extractMapRasterFromArchive(mapArchive({
+            width: 40,
+            height: 40,
+            pixels: Array(40 * 40).fill(0),
+            resolution: 0.1,
+            xMin: -2,
+            yMin: -2,
+        }));
+        const centerX = 20;
+        const centerY = 19;
+        const detail = [59, 130, 246, 255];
+        const frontDown = readRenderedPixels(
+            renderMapImageWithMowedPath(mapRaster, [], [], { x: 0, y: 0, yaw: 90 }, 'Unknown mower'),
+        );
+        const frontRight = readRenderedPixels(
+            renderMapImageWithMowedPath(mapRaster, [], [], { x: 0, y: 0, yaw: -16 }, 'Unknown mower'),
+        );
+
+        assert.deepEqual(frontDown.pixels[(centerY + 6) * 40 + centerX], detail);
+        assert.deepEqual(frontRight.pixels[(centerY - 2) * 40 + centerX + 6], detail);
+    });
+
+    it('renders the charger marker from remote map metadata below the mower', () => {
+        const mapRaster = extractMapRasterFromArchive(mapArchive({
+            width: 40,
+            height: 40,
+            pixels: Array(40 * 40).fill(0),
+            resolution: 0.1,
+            xMin: -2,
+            yMin: -2,
+            chargerPoint: { x: 0, y: -1000, phi: 2, type: 83 },
+        }));
+        const withoutCharger = extractMapRasterFromArchive(mapArchive({
+            width: 40,
+            height: 40,
+            pixels: Array(40 * 40).fill(0),
+            resolution: 0.1,
+            xMin: -2,
+            yMin: -2,
+        }));
+        const pose = { x: 0, y: 0, yaw: 90 };
+        const rendered = readRenderedPixels(renderMapImageWithMowedPath(mapRaster, [], [], pose, 'Unknown mower'));
+        const baseline = readRenderedPixels(
+            renderMapImageWithMowedPath(withoutCharger, [], [], pose, 'Unknown mower'),
+        );
+
+        assert.notDeepEqual(rendered.pixels[29 * 40 + 20], baseline.pixels[29 * 40 + 20]);
     });
 
     it('parses historical path files as map coordinates', () => {
@@ -238,5 +395,25 @@ describe('lib/anthbot/map-renderer', () => {
         assert.strictEqual(same, first);
         assert.notStrictEqual(changed, first);
         assert.equal(changed.mowedPath, JSON.stringify(changedPath));
+
+        const withPose = updateMapImageCache(context, {
+            mapVersion: '20260523221453',
+            mowedPath: changedPath,
+            mowerPose: { x: 0, y: 0, yaw: 0 },
+        });
+        const movedPose = updateMapImageCache(context, {
+            mapVersion: '20260523221453',
+            mowedPath: changedPath,
+            mowerPose: { x: 0.5, y: 0, yaw: 0 },
+        });
+        assert.notStrictEqual(movedPose, withPose);
+        assert.equal(movedPose.mowerPose, JSON.stringify({ x: 0.5, y: 0, yaw: 0 }));
+
+        const withoutPath = updateMapImageCache(context, {
+            mapVersion: '20260523221453',
+            mowedPath: changedPath,
+            includeMowedPath: false,
+        });
+        assert.equal(withoutPath.imageWithMowedPath, '');
     });
 });

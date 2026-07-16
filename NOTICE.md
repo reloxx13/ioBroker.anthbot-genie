@@ -10,3 +10,8 @@ identification and interoperability.
 
 If you are a rights holder and want branding or references adjusted or removed,
 please open an issue.
+
+The map marker assets under `lib/anthbot/assets/` are app-derived Anthbot
+resources used only to reproduce the mower and charger positions in the map
+image. Anthbot retains all rights to those assets; the generated mower marker
+in the renderer is the fallback for unsupported or unavailable resources.
