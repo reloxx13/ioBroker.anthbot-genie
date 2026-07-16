@@ -2,7 +2,11 @@
 
 const assert = require("node:assert/strict");
 
-const { buildDeviceStateUpdates, getControlFallbackValue } = require("../../../lib/adapter/state-updates");
+const {
+    buildDeviceStateUpdates,
+    getControlFallbackValue,
+    mowerPoseInMeters,
+} = require("../../../lib/adapter/state-updates");
 
 describe("lib/adapter/state-updates", () => {
     it("builds the expected Genie state update set", () => {
@@ -28,6 +32,11 @@ describe("lib/adapter/state-updates", () => {
                 custom_areas: [{ id: 1, name: "Front", cutter_height: 35 }],
                 region_areas: [{ id: 7, name: "Back", x: 12, y: 34 }],
             },
+            mapRaster: {
+                metadata: {
+                    charger_point: { x: -728, y: 388, phi: 2, type: 83 },
+                },
+            },
         };
         const data = {
             ...context.lastReported,
@@ -47,7 +56,7 @@ describe("lib/adapter/state-updates", () => {
                 posegps: { lat: 51.1, lon: 9.2 },
                 pose_type: "rtk",
             },
-            pose: { x: 1, y: 2, yaw: 90 },
+            pose: { x: 940, y: 3560, yaw: 90 },
             rtk_state: 3,
             ctl_rtk_base: { rtk_base_state: 3 },
             rtk_move_sta: { value: 1 },
@@ -138,6 +147,11 @@ describe("lib/adapter/state-updates", () => {
         assert.equal(updates["info.lastPoll"], now.toISOString());
         assert.equal(updates["metrics.status.mower"], "mowing");
         assert.equal(updates["metrics.error.description"], "The machine is stuck");
+        assert.equal(updates["location.pose.x"], 0.94);
+        assert.equal(updates["location.pose.y"], 3.56);
+        assert.equal(updates["location.pose.yaw"], 90);
+        assert.equal(updates["location.charger.x"], -0.728);
+        assert.equal(updates["location.charger.y"], 0.388);
         assert.equal(updates["metrics.zones.manualCount"], 1);
         assert.equal(updates["metrics.zones.autoCount"], 1);
         assert.equal(updates["controls.fullMapMowing.mowHeight"], 35);
@@ -148,6 +162,8 @@ describe("lib/adapter/state-updates", () => {
         assert.equal(updates["diagnostics.time.systemBoot"], "2026-04-28T15:30:45.000Z");
         assert.equal(updates["zones.manual.activeIds"], "[1,3]");
         assert.equal(updates["zones.autoList"], '[{"id":7,"name":"Back","x":12,"y":34}]');
+        assert.deepEqual(mowerPoseInMeters(data), { x: 0.94, y: 3.56, yaw: 90 });
+        assert.equal(mowerPoseInMeters({}), null);
     });
 
     it("builds the expected M-series state update set", () => {
@@ -251,7 +267,7 @@ describe("lib/adapter/state-updates", () => {
     });
 
     it("publishes cached map images as acknowledged read-only state values", () => {
-        const updates = buildDeviceStateUpdates({
+        const stateUpdateArgs = {
             context: {
                 device: { alias: "Garden", model: "Anthbot Genie 600" },
                 region: { regionName: "eu-central-1" },
@@ -269,10 +285,23 @@ describe("lib/adapter/state-updates", () => {
             eventCodeCache: null,
             errorDescriptionLanguage: "English",
             now: new Date("2026-07-16T12:00:00.000Z"),
-        });
+        };
+        const updates = buildDeviceStateUpdates(stateUpdateArgs);
 
         assert.equal(updates["map.image"], "data:image/png;base64,full");
         assert.equal(updates["map.imageWithRtkMask"], "data:image/png;base64,mask");
         assert.equal(updates["map.imageWithMowedPath"], "data:image/png;base64,path");
+        assert.equal(updates["location.charger.x"], null);
+        assert.equal(updates["location.charger.y"], null);
+
+        const withoutMap = buildDeviceStateUpdates({ ...stateUpdateArgs, includeMapImages: false });
+        assert.equal(Object.hasOwn(withoutMap, "map.image"), false);
+        assert.equal(Object.hasOwn(withoutMap, "map.imageWithRtkMask"), false);
+        assert.equal(Object.hasOwn(withoutMap, "map.imageWithMowedPath"), false);
+
+        const withoutPath = buildDeviceStateUpdates({ ...stateUpdateArgs, includeMowedPathImage: false });
+        assert.equal(withoutPath["map.image"], "data:image/png;base64,full");
+        assert.equal(withoutPath["map.imageWithRtkMask"], "data:image/png;base64,mask");
+        assert.equal(Object.hasOwn(withoutPath, "map.imageWithMowedPath"), false);
     });
 });

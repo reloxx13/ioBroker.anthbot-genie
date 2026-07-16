@@ -18,10 +18,19 @@ const {
     getDeviceChannelDefinitions,
     getDeviceStateDefinitions,
 } = require('./lib/adapter/definitions');
-const { normalizePollIntervalSeconds } = require('./lib/adapter/config');
-const { buildDeviceStateUpdates, getControlFallbackValue } = require('./lib/adapter/state-updates');
+const {
+    isMapFetchingEnabled,
+    isMapPathGenerationEnabled,
+    normalizePollIntervalSeconds,
+} = require('./lib/adapter/config');
+const { buildDeviceStateUpdates, getControlFallbackValue, mowerPoseInMeters } = require('./lib/adapter/state-updates');
 const { executeCommand, executeConsumableCommand, executeControl } = require('./lib/adapter/actions');
-const { extractMapRasterFromArchive, parseHistoryPath, updateMapImageCache } = require('./lib/anthbot/map-renderer');
+const {
+    extractMapRasterFromArchive,
+    hasRobotIconAsset,
+    parseHistoryPath,
+    updateMapImageCache,
+} = require('./lib/anthbot/map-renderer');
 
 /**
  * @typedef {object} AnthbotAdapterConfig
@@ -30,6 +39,8 @@ const { extractMapRasterFromArchive, parseHistoryPath, updateMapImageCache } = r
  * @property {string} areaCode
  * @property {string} apiHost
  * @property {number} pollInterval
+ * @property {boolean} fetchMap
+ * @property {boolean} generateMapWithPaths
  * @property {string} errorDescriptionLanguage
  */
 
@@ -339,6 +350,7 @@ class AnthbotGenieAdapter extends AdapterBase {
                 lastHistoryPathKey: existing?.lastHistoryPathKey || null,
                 lastHistoryPathRequestKey: existing?.lastHistoryPathRequestKey || null,
                 lastHistoryPathRequestAt: existing?.lastHistoryPathRequestAt || 0,
+                lastRobotIconFallbackModel: existing?.lastRobotIconFallbackModel || null,
                 lastReported: existing?.lastReported || {},
                 lastService: existing?.lastService || {},
             };
@@ -496,6 +508,18 @@ class AnthbotGenieAdapter extends AdapterBase {
             }
         }
 
+        if (!isMapFetchingEnabled(this.anthbotConfig.fetchMap)) {
+            this.clearMapContext(context);
+            context.lastReported = propertyState;
+            context.lastService = serviceState;
+            await this.updateStates(context, {
+                ...propertyState,
+                _service_reported: serviceState,
+                _area_definition: context.areaDefinition || {},
+            });
+            return;
+        }
+
         const mapFile = this.mapFileInfo(propertyState);
         const mapVersion =
             [
@@ -538,7 +562,9 @@ class AnthbotGenieAdapter extends AdapterBase {
             }
         }
 
-        const historyPath = await this.refreshHistoryPath(context, propertyState);
+        const generateMapWithPaths = isMapPathGenerationEnabled(this.anthbotConfig.generateMapWithPaths);
+        this.logMissingRobotIcon(context, generateMapWithPaths);
+        const historyPath = generateMapWithPaths ? await this.refreshHistoryPath(context, propertyState) : [];
 
         context.lastReported = propertyState;
         context.lastService = serviceState;
@@ -551,6 +577,9 @@ class AnthbotGenieAdapter extends AdapterBase {
         updateMapImageCache(context, {
             mapVersion,
             mowedPath: historyPath,
+            includeMowedPath: generateMapWithPaths,
+            mowerPose: mowerPoseInMeters(propertyState),
+            deviceModel: context.device.model,
             forbidAreas: [
                 ...(Array.isArray(context.areaDefinition?.forbid_areas) ? context.areaDefinition.forbid_areas : []),
                 ...(Array.isArray(context.areaDefinition?.remote_forbid_areas)
@@ -559,6 +588,40 @@ class AnthbotGenieAdapter extends AdapterBase {
             ],
         });
         await this.updateStates(context, merged);
+    }
+
+    /**
+     * @param {object} context
+     * @param {boolean} generateMapWithPaths
+     */
+    logMissingRobotIcon(context, generateMapWithPaths) {
+        if (!generateMapWithPaths) {
+            context.lastRobotIconFallbackModel = null;
+            return;
+        }
+
+        const model =
+            typeof context.device?.model === 'string' && context.device.model ? context.device.model : 'unknown';
+        if (hasRobotIconAsset(context.device?.model)) {
+            context.lastRobotIconFallbackModel = null;
+            return;
+        }
+        if (context.lastRobotIconFallbackModel === model) {
+            return;
+        }
+
+        this.log.debug(`No map robot icon found for model ${model}; using generated fallback icon`);
+        context.lastRobotIconFallbackModel = model;
+    }
+
+    clearMapContext(context) {
+        context.lastMapVersion = null;
+        context.mapRaster = null;
+        context.mapImageCache = null;
+        context.historyPath = null;
+        context.lastHistoryPathKey = null;
+        context.lastHistoryPathRequestKey = null;
+        context.lastHistoryPathRequestAt = 0;
     }
 
     /**
@@ -691,6 +754,8 @@ class AnthbotGenieAdapter extends AdapterBase {
             eventCodeCache: this.eventCodeCache,
             errorDescriptionLanguage: this.anthbotConfig.errorDescriptionLanguage || 'English',
             now: new Date(),
+            includeMapImages: isMapFetchingEnabled(this.anthbotConfig.fetchMap),
+            includeMowedPathImage: isMapPathGenerationEnabled(this.anthbotConfig.generateMapWithPaths),
         });
 
         for (const [suffix, value] of Object.entries(updates)) {
