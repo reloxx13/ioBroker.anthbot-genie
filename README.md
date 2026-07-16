@@ -182,14 +182,15 @@ The adapter keeps the same state tree for all supported mower models. On models 
 | `<serial>.map.image` | string | Native navigation map as a PNG data URI |
 | `<serial>.map.imageWithRtkMask` | string | Native navigation map with Anthbot's `rtk_mask_map` as a PNG data URI |
 | `<serial>.map.imageWithMowedPath` | string | Native navigation map with the downloaded historical mowing path as a PNG data URI |
+| `<serial>.map.mowedPath` | string | JSON array with the exact historical path points used for `map.imageWithMowedPath` |
 
-All three states are read-only and use the `media.image` role. The adapter downloads Anthbot's `multi_maps` map file, extracts `maps/remote_map_navi.map`, and renders the native raster with the app-compatible light palette. `map.image` contains only the map; `map.imageWithRtkMask` adds the complete `maps/rtk_mask_map` mowed-area raster; `map.imageWithMowedPath` requests `req_history_mapping_path`, downloads `path_<SN>.txt`, renders the historical path in blue, and adds the current mower pose as a yellow robot icon plus the native charger marker below it. The bundled app assets are oriented with the mower front pointing down and are rotated using `location.pose.yaw - 90°` (for example, a live yaw of about `-16°` points the front right); the generated fallback uses the same orientation. The charger marker and the read-only `location.charger.x`/`location.charger.y` states are read from `charger_point` in `maps/remote_map.json`; the state coordinates are exposed in metres. Both overlay images render configured forbidden zones in red. The historical image never falls back to the short live `curpath`. The images are refreshed when the native map identity, timestamp, history path, mower pose, or charger point changes. Missing or invalid map data leaves the states empty while the adapter continues polling.
+The three image states are read-only and use the `media.image` role. The `map.mowedPath` state is read-only and uses the `json` role. The adapter downloads Anthbot's `multi_maps` map file, extracts `maps/remote_map_navi.map`, and renders the native raster with the app-compatible light palette. `map.image` contains only the map; `map.imageWithRtkMask` adds the complete `maps/rtk_mask_map` mowed-area raster; `map.imageWithMowedPath` requests `req_history_mapping_path`, downloads `path_<SN>.txt`, renders the historical path in blue, and adds the current mower pose as a yellow robot icon plus the native charger marker below it. `map.mowedPath` contains the same JSON path points used by that PNG. Its `x` and `y` values use the native historical-path centimetre coordinates; divide them by `100` to convert them to the local map metres used by the pose states. The bundled app assets are oriented with the mower front pointing down and are rotated using `location.pose.yaw - 90°` (for example, a live yaw of about `-16°` points the front right); the generated fallback uses the same orientation. The charger marker and the read-only `location.charger.x`/`location.charger.y` states are read from `charger_point` in `maps/remote_map.json`; the state coordinates are exposed in metres. Both overlay images render configured forbidden zones in red. The historical image never falls back to the short live `curpath`. The images and path state are refreshed when the native map identity, timestamp, history path, mower pose, or charger point changes. Missing or invalid map data leaves the states empty while the adapter continues polling.
 
 The two map settings deliberately control different work:
 
 - `fetchMap = false`: no map archive, raster, PNG, or history path is requested. Existing values of the map and charger coordinate states remain unchanged, so a previously generated map and charger position can still be displayed, but they are not updated.
-- `fetchMap = true` and `generateMapWithPaths = false`: the native map and RTK-mask states are updated. The historical path is not requested, and `map.imageWithMowedPath` remains unchanged. Use `map.image` or `map.imageWithRtkMask` for the lower-CPU map view.
-- Both settings `true`: all three map states are generated; `map.imageWithMowedPath` contains the historical path and the current robot icon.
+- `fetchMap = true` and `generateMapWithPaths = false`: the native map and RTK-mask states are updated. The historical path is not requested, and `map.imageWithMowedPath` and `map.mowedPath` remain unchanged. Use `map.image` or `map.imageWithRtkMask` for the lower-CPU map view.
+- Both settings `true`: all three image states and the `map.mowedPath` state are generated; `map.imageWithMowedPath` contains the historical path and the current robot icon.
 
 #### VIS: map with the integrated robot icon
 
@@ -409,6 +410,7 @@ For automatic zones, the adapter resolves the selected zone IDs or names to the 
 - Add a second opt-in Admin checkbox for historical path rendering because it uses additional CPU and cloud requests.
 - Expose local mower pose X/Y states in metres for direct map positioning.
 - Expose charger point X/Y states in metres from the native map metadata.
+- Expose the historical mowing path used by the PNG as a JSON state.
 - Rotate the integrated robot map icon according to the mower pose yaw.
 - Render the native charger marker from the map metadata below the mower icon.
 
