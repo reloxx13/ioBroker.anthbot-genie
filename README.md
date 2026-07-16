@@ -9,7 +9,7 @@
 [![ioBroker installs](https://iobroker.live/badges/anthbot-genie-installed.svg)](https://www.iobroker.net/)
 ![License](https://img.shields.io/github/license/reloxx13/ioBroker.anthbot-genie)
 ![ioBroker phase](https://img.shields.io/badge/ioBroker%20phase-latest--repo-green)
-[![ioBroker forum](https://img.shields.io/badge/ioBroker-forum-blue)](https://forum.iobroker.net/topic/84392)
+[![ioBroker forum](https://img.shields.io/badge/ioBroker-forum-blue)](https://forum.iobroker.net/topic/84983)
 
 [![NPM](https://nodei.co/npm/iobroker.anthbot-genie.png?downloads=true)](https://nodei.co/npm/iobroker.anthbot-genie/)
 
@@ -19,7 +19,7 @@ The adapter connects to the Anthbot cloud account, discovers bound mowers, reads
 
 It is intended for users who want more than a basic online/battery/status view: RTK and base station state, firmware and OTA details, network and SIM information, GPS and pose data, map lifecycle timestamps, mower error details, consumable lifetimes, rain settings, zone metadata, and writable mowing controls are exposed as ioBroker states.
 
-This adapter is available in the ioBroker `latest` repository. Please report feedback and test results in the [ioBroker forum thread](https://forum.iobroker.net/topic/84392).
+This adapter is available in the ioBroker `latest` repository. Please report feedback and test results in the [ioBroker forum thread](https://forum.iobroker.net/topic/84983).
 
 An example ioBroker Blockly with conditions for mower automation is available in the [Blockly automation example](https://forum.iobroker.net/topic/84392/2).
 
