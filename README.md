@@ -187,7 +187,7 @@ All three states are read-only and use the `media.image` role. The adapter downl
 
 The two map settings deliberately control different work:
 
-- `fetchMap = false`: no map archive or history path is requested and no PNG is rendered. Existing values of all three map states remain unchanged, so a previously generated map can still be displayed, but it is not updated.
+- `fetchMap = false`: no map raster or PNG is rendered and no history path is requested. Existing values of all three map states remain unchanged, so a previously generated map can still be displayed, but it is not updated. The adapter may download the map archive once per map version to read `charger_point` for the charger coordinate states; it does not repeat that request on every telemetry poll.
 - `fetchMap = true` and `generateMapWithPaths = false`: the native map and RTK-mask states are updated. The historical path is not requested, and `map.imageWithMowedPath` remains unchanged. Use `map.image` or `map.imageWithRtkMask` for the lower-CPU map view.
 - Both settings `true`: all three map states are generated; `map.imageWithMowedPath` contains the historical path and the current robot icon.
 
