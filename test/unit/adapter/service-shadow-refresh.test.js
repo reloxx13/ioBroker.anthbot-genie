@@ -243,6 +243,84 @@ describe("service shadow refresh policy", () => {
         ]);
     });
 
+    it("waits for the mower to finish replacing a historical path before downloading it", async () => {
+        const adapter = createAdapter();
+        const { context } = createContext();
+        let elapsed = 0;
+        const delays = [];
+        adapter.delay = async milliseconds => {
+            delays.push(milliseconds);
+            elapsed += milliseconds;
+        };
+        context.shadowClient.publishServiceCommand = async () => {};
+        adapter.cloudClient = {
+            getDeviceHistoryPath: async () =>
+                Buffer.from(elapsed >= 5000 ? "100,200\n300,400\n" : "1,2\n3,4\n", "utf8"),
+        };
+
+        const points = await adapter.refreshHistoryPath(context, { path_time: "1" });
+
+        assert.deepEqual(points, [
+            { x: 100, y: 200, flag: 5 },
+            { x: 300, y: 400, flag: 5 },
+        ]);
+        assert.deepEqual(delays, [5000]);
+    });
+
+    it("retries a failed history request instead of suppressing it for the cache window", async () => {
+        const adapter = createAdapter();
+        const { context } = createContext();
+        let publishCount = 0;
+        let pathAvailable = false;
+        context.shadowClient.publishServiceCommand = async () => {
+            publishCount += 1;
+        };
+        adapter.cloudClient = {
+            getDeviceHistoryPath: async () =>
+                pathAvailable ? Buffer.from("100,200\n300,400\n", "utf8") : Buffer.alloc(0),
+        };
+
+        assert.deepEqual(await adapter.refreshHistoryPath(context, { path_time: "1" }), []);
+        pathAvailable = true;
+        const points = await adapter.refreshHistoryPath(context, { path_time: "1" });
+
+        assert.deepEqual(points, [
+            { x: 100, y: 200, flag: 5 },
+            { x: 300, y: 400, flag: 5 },
+        ]);
+        assert.equal(publishCount, 2);
+    });
+
+    it("uses all history metadata fields as the path cache key", () => {
+        const adapter = createAdapter();
+
+        assert.equal(
+            adapter.historyPathKey({ history_path_info: { map_id: "map-1", path_id: 2, time: "same" } }),
+            "map-1|2|same",
+        );
+        assert.notEqual(
+            adapter.historyPathKey({ history_path_info: { map_id: "map-2", path_id: 2, time: "same" } }),
+            "map-1|2|same",
+        );
+    });
+
+    it("selects the map archive matching the active map timestamp", () => {
+        const adapter = createAdapter();
+
+        assert.deepEqual(
+            adapter.mapFileInfo({
+                map_tar_time: "map-2",
+                multi_maps: {
+                    map_list: [
+                        { map_file_name: "map-old", map_id: "map-1", md5: "old" },
+                        { map_file_name: "map-active", map_id: "map-2", md5: "active" },
+                    ],
+                },
+            }),
+            { mapFileName: "map-active", md5: "active" },
+        );
+    });
+
     it("does not request map archives or history when path generation is disabled", async () => {
         const adapter = createAdapter({ fetchMap: true, generateMapWithPaths: false });
         const { calls, context } = createCachedMapContext();

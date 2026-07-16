@@ -49,6 +49,9 @@ const {
 
 const AdapterBase = /** @type {AdapterCtor} */ (utils.Adapter);
 const { I18n } = utils;
+const HISTORY_PATH_READY_DELAY_MS = 5000;
+const HISTORY_PATH_RETRY_DELAY_MS = 500;
+const HISTORY_PATH_DOWNLOAD_ATTEMPTS = 3;
 
 function t(en) {
     return I18n.getTranslatedObject(en);
@@ -658,7 +661,15 @@ class AnthbotGenieAdapter extends AdapterBase {
      */
     historyPathKey(propertyState) {
         const historyInfo = propertyState?.history_path_info;
-        return this.mapVersion(historyInfo?.time ?? historyInfo?.value?.time ?? propertyState?.path_time) || 'current';
+        const info =
+            historyInfo?.value && typeof historyInfo.value === 'object' && !Array.isArray(historyInfo.value)
+                ? historyInfo.value
+                : historyInfo;
+        const metadata = [info?.map_id, info?.path_id, info?.time].map(value => this.mapVersion(value));
+        if (metadata.some(Boolean)) {
+            return metadata.map(value => value || '').join('|');
+        }
+        return this.mapVersion(propertyState?.path_time) || 'current';
     }
 
     /**
@@ -692,11 +703,12 @@ class AnthbotGenieAdapter extends AdapterBase {
                 cmd: 'req_history_mapping_path',
                 data: { start_pos: 0 },
             });
+            await this.delay(HISTORY_PATH_READY_DELAY_MS);
             if (afterServiceCommand) {
                 await afterServiceCommand();
             }
 
-            for (let attempt = 0; attempt < 3; attempt++) {
+            for (let attempt = 0; attempt < HISTORY_PATH_DOWNLOAD_ATTEMPTS; attempt++) {
                 const pathFile = await this.cloudClient.getDeviceHistoryPath(context.device.serialNumber);
                 const points = parseHistoryPath(pathFile);
                 if (points.length) {
@@ -704,12 +716,14 @@ class AnthbotGenieAdapter extends AdapterBase {
                     context.lastHistoryPathKey = pathKey;
                     return points;
                 }
-                if (attempt < 2) {
-                    await this.delay(500);
+                if (attempt < HISTORY_PATH_DOWNLOAD_ATTEMPTS - 1) {
+                    await this.delay(HISTORY_PATH_RETRY_DELAY_MS);
                 }
             }
             throw new AnthbotGenieError('Historical path file did not contain usable coordinates');
         } catch (error) {
+            context.lastHistoryPathRequestKey = null;
+            context.lastHistoryPathRequestAt = 0;
             this.log.debug(`Historical path refresh failed for ${context.device.serialNumber}: ${error.message}`);
             return Array.isArray(context.historyPath) ? context.historyPath : [];
         }
@@ -724,7 +738,11 @@ class AnthbotGenieAdapter extends AdapterBase {
         if (!Array.isArray(mapList)) {
             return { mapFileName: null, md5: null };
         }
-        const entry = mapList.find(item => item && typeof item.map_file_name === 'string' && item.map_file_name);
+        const activeMapIds = [propertyState?.map_tar_time, propertyState?.map_time]
+            .map(value => this.mapVersion(value))
+            .filter(Boolean);
+        const entries = mapList.filter(item => item && typeof item.map_file_name === 'string' && item.map_file_name);
+        const entry = entries.find(item => activeMapIds.includes(this.mapVersion(item.map_id))) || entries[0];
         return {
             mapFileName: entry?.map_file_name || null,
             md5: typeof entry?.md5 === 'string' && entry.md5 ? entry.md5 : null,
