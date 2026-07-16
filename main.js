@@ -21,6 +21,7 @@ const {
 const { normalizePollIntervalSeconds } = require('./lib/adapter/config');
 const { buildDeviceStateUpdates, getControlFallbackValue } = require('./lib/adapter/state-updates');
 const { executeCommand, executeConsumableCommand, executeControl } = require('./lib/adapter/actions');
+const { extractMapRasterFromArchive, parseHistoryPath, updateMapImageCache } = require('./lib/anthbot/map-renderer');
 
 /**
  * @typedef {object} AnthbotAdapterConfig
@@ -331,6 +332,13 @@ class AnthbotGenieAdapter extends AdapterBase {
                 iotCredentials: region.iotCredentials,
                 areaDefinition: existing?.areaDefinition || {},
                 lastAreaTime: existing?.lastAreaTime || null,
+                lastMapVersion: existing?.lastMapVersion || null,
+                mapRaster: existing?.mapRaster || null,
+                mapImageCache: existing?.mapImageCache || null,
+                historyPath: existing?.historyPath || null,
+                lastHistoryPathKey: existing?.lastHistoryPathKey || null,
+                lastHistoryPathRequestKey: existing?.lastHistoryPathRequestKey || null,
+                lastHistoryPathRequestAt: existing?.lastHistoryPathRequestAt || 0,
                 lastReported: existing?.lastReported || {},
                 lastService: existing?.lastService || {},
             };
@@ -464,7 +472,7 @@ class AnthbotGenieAdapter extends AdapterBase {
             this.log.debug(`Service shadow failed for ${context.device.serialNumber}: ${error.message}`);
         }
 
-        const areaTime = typeof propertyState.area_time === 'string' ? propertyState.area_time : null;
+        const areaTime = this.mapVersion(propertyState.area_time);
         const shouldRefreshArea =
             !context.areaDefinition ||
             Object.keys(context.areaDefinition).length === 0 ||
@@ -488,6 +496,50 @@ class AnthbotGenieAdapter extends AdapterBase {
             }
         }
 
+        const mapFile = this.mapFileInfo(propertyState);
+        const mapVersion =
+            [
+                this.mapVersion(propertyState.map_tar_time),
+                this.mapVersion(propertyState.map_time),
+                mapFile.mapFileName,
+                mapFile.md5,
+            ]
+                .filter(Boolean)
+                .join('|') || null;
+        const shouldRefreshMap = !context.mapRaster || mapVersion !== context.lastMapVersion;
+        if (shouldRefreshMap) {
+            try {
+                const mapArchive = await this.cloudClient.getDeviceMapArchive(
+                    context.device.serialNumber,
+                    mapFile.mapFileName,
+                );
+                const mapRaster = extractMapRasterFromArchive(mapArchive);
+                if (!mapRaster) {
+                    throw new AnthbotGenieError('Native map archive did not contain a valid navigation raster');
+                }
+                context.mapRaster = mapRaster;
+                context.lastMapVersion = mapVersion;
+            } catch (error) {
+                if (isLikelyAuthenticationError(error)) {
+                    await this.ensureSession(true);
+                    const mapArchive = await this.cloudClient.getDeviceMapArchive(
+                        context.device.serialNumber,
+                        mapFile.mapFileName,
+                    );
+                    const mapRaster = extractMapRasterFromArchive(mapArchive);
+                    if (!mapRaster) {
+                        throw new AnthbotGenieError('Native map archive did not contain a valid navigation raster');
+                    }
+                    context.mapRaster = mapRaster;
+                    context.lastMapVersion = mapVersion;
+                } else {
+                    this.log.debug(`Map refresh failed for ${context.device.serialNumber}: ${error.message}`);
+                }
+            }
+        }
+
+        const historyPath = await this.refreshHistoryPath(context, propertyState);
+
         context.lastReported = propertyState;
         context.lastService = serviceState;
 
@@ -496,7 +548,100 @@ class AnthbotGenieAdapter extends AdapterBase {
             _service_reported: serviceState,
             _area_definition: context.areaDefinition || {},
         };
+        updateMapImageCache(context, {
+            mapVersion,
+            mowedPath: historyPath,
+            forbidAreas: [
+                ...(Array.isArray(context.areaDefinition?.forbid_areas) ? context.areaDefinition.forbid_areas : []),
+                ...(Array.isArray(context.areaDefinition?.remote_forbid_areas)
+                    ? context.areaDefinition.remote_forbid_areas
+                    : []),
+            ],
+        });
         await this.updateStates(context, merged);
+    }
+
+    /**
+     * @param {object} propertyState
+     * @returns {string}
+     */
+    historyPathKey(propertyState) {
+        const historyInfo = propertyState?.history_path_info;
+        return this.mapVersion(historyInfo?.time ?? historyInfo?.value?.time ?? propertyState?.path_time) || 'current';
+    }
+
+    /**
+     * Request and download the full historical mowing path. The live curpath
+     * is intentionally not used here; an unavailable history leaves this
+     * image without a path instead of showing a misleading short segment.
+     *
+     * @param {object} context
+     * @param {object} propertyState
+     * @returns {Promise<{ x: number, y: number, flag: number }[]>}
+     */
+    async refreshHistoryPath(context, propertyState) {
+        const pathKey = this.historyPathKey(propertyState);
+        if (Array.isArray(context.historyPath) && context.lastHistoryPathKey === pathKey) {
+            return context.historyPath;
+        }
+
+        const now = Date.now();
+        if (
+            context.lastHistoryPathRequestKey === pathKey &&
+            now - Number(context.lastHistoryPathRequestAt || 0) < 30000
+        ) {
+            return Array.isArray(context.historyPath) ? context.historyPath : [];
+        }
+
+        context.lastHistoryPathRequestKey = pathKey;
+        context.lastHistoryPathRequestAt = now;
+        try {
+            await context.shadowClient.publishServiceCommand({
+                cmd: 'req_history_mapping_path',
+                data: { start_pos: 0 },
+            });
+
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const pathFile = await this.cloudClient.getDeviceHistoryPath(context.device.serialNumber);
+                const points = parseHistoryPath(pathFile);
+                if (points.length) {
+                    context.historyPath = points;
+                    context.lastHistoryPathKey = pathKey;
+                    return points;
+                }
+                if (attempt < 2) {
+                    await this.delay(500);
+                }
+            }
+            throw new AnthbotGenieError('Historical path file did not contain usable coordinates');
+        } catch (error) {
+            this.log.debug(`Historical path refresh failed for ${context.device.serialNumber}: ${error.message}`);
+            return Array.isArray(context.historyPath) ? context.historyPath : [];
+        }
+    }
+
+    /**
+     * @param {object} propertyState
+     * @returns {{ mapFileName: string|null, md5: string|null }}
+     */
+    mapFileInfo(propertyState) {
+        const mapList = propertyState?.multi_maps?.map_list;
+        if (!Array.isArray(mapList)) {
+            return { mapFileName: null, md5: null };
+        }
+        const entry = mapList.find(item => item && typeof item.map_file_name === 'string' && item.map_file_name);
+        return {
+            mapFileName: entry?.map_file_name || null,
+            md5: typeof entry?.md5 === 'string' && entry.md5 ? entry.md5 : null,
+        };
+    }
+
+    /**
+     * @param {unknown} value
+     * @returns {string|null}
+     */
+    mapVersion(value) {
+        return typeof value === 'string' || typeof value === 'number' ? String(value) : null;
     }
 
     async ensureDeviceIotCredentials(context) {

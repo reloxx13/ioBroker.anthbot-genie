@@ -37,6 +37,7 @@ An example ioBroker Blockly with conditions for mower automation is available in
 - Writable control states for full-map mowing, zone mowing, cutting height, voice volume, custom mowing direction, obstacle avoidance, rain settings, and mowing near the charging pile
 - Command states for full mowing, stop, return to dock, pause return to dock, grass dump, disk maintenance mode, edge mowing, mowing near the charging pile, point mowing, refresh, manual zone mowing, and automatic zone mowing
 - Manual and automatic zone metadata as JSON states, including active manual zone IDs
+- Read-only PNG map image states for the native map, RTK mowed-area mask, and historical mowing path
 - Raw property shadow, service shadow, Anthbot event-code translations, and area definition payloads for troubleshooting and automation debugging
 
 ## Requirements
@@ -169,6 +170,16 @@ anthbot-genie.<instance>.<serial>.*
 | `<serial>.metrics.error.active` | boolean | | Whether a non-zero mower error is active |
 
 The adapter keeps the same state tree for all supported mower models. On models that do not expose the M5/M9-specific payload fields, the states `metrics.status.modeRaw`, `metrics.mowing.totalTime`, `metrics.mowing.totalArea`, and `metrics.map.mappingTaskState` are still created but remain empty or `null`.
+
+### Map images
+
+| State | Type | Description |
+| --- | --- | --- |
+| `<serial>.map.image` | string | Native navigation map as a PNG data URI |
+| `<serial>.map.imageWithRtkMask` | string | Native navigation map with Anthbot's `rtk_mask_map` as a PNG data URI |
+| `<serial>.map.imageWithMowedPath` | string | Native navigation map with the downloaded historical mowing path as a PNG data URI |
+
+All three states are read-only and use the `media.image` role. The adapter downloads Anthbot's `multi_maps` map file, extracts `maps/remote_map_navi.map`, and renders the native raster with the app-compatible light palette. `map.image` contains only the map; `map.imageWithRtkMask` adds the complete `maps/rtk_mask_map` mowed-area raster; `map.imageWithMowedPath` requests `req_history_mapping_path`, downloads `path_<SN>.txt`, and renders only the historical path in blue. Both overlay images render configured forbidden zones in red. The historical image never falls back to the short live `curpath`. The images are refreshed when the native map identity, timestamp, or history path changes. Missing or invalid map data leaves the states empty while the adapter continues polling.
 
 ### Location
 
@@ -330,6 +341,10 @@ For automatic zones, the adapter resolves the selected zone IDs or names to the 
   Placeholder for the next version (at the beginning of the line):
   ### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+
+- Add separate read-only PNG map image states for the native map, RTK mowed-area mask, and downloaded historical mowing path.
+
 ### 0.1.13 (2026-06-08)
 
 - Add M5/M9 payload parity for status, battery, error, network, RTK, map, and total mowing metrics while keeping the existing ioBroker state tree stable.

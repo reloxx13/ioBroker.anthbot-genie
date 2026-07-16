@@ -249,4 +249,30 @@ describe("lib/adapter/state-updates", () => {
         assert.equal(getControlFallbackValue(data, "nearChargerMowing.obstacleAvoidanceLevel"), 2);
         assert.equal(getControlFallbackValue(data, "not-supported"), undefined);
     });
+
+    it("publishes cached map images as acknowledged read-only state values", () => {
+        const updates = buildDeviceStateUpdates({
+            context: {
+                device: { alias: "Garden", model: "Anthbot Genie 600" },
+                region: { regionName: "eu-central-1" },
+                shadowClient: { iotEndpoint: "a.example.iot.eu-central-1.amazonaws.com" },
+                lastReported: {},
+                lastService: {},
+                areaDefinition: {},
+                mapImageCache: {
+                    image: "data:image/png;base64,full",
+                    imageWithRtkMask: "data:image/png;base64,mask",
+                    imageWithMowedPath: "data:image/png;base64,path",
+                },
+            },
+            data: { _area_definition: {} },
+            eventCodeCache: null,
+            errorDescriptionLanguage: "English",
+            now: new Date("2026-07-16T12:00:00.000Z"),
+        });
+
+        assert.equal(updates["map.image"], "data:image/png;base64,full");
+        assert.equal(updates["map.imageWithRtkMask"], "data:image/png;base64,mask");
+        assert.equal(updates["map.imageWithMowedPath"], "data:image/png;base64,path");
+    });
 });

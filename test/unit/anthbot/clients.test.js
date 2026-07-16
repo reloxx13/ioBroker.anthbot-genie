@@ -56,6 +56,58 @@ describe("lib/anthbot clients", () => {
         );
     });
 
+    it("downloads the native multi-map archive using the mower map file name", async () => {
+        const requests = [];
+        const archive = Buffer.from([31, 139, 8, 0]);
+        const client = new AnthbotCloudApiClient({
+            http: {
+                get: async (url, options) => {
+                    requests.push({ url, options });
+                    if (url.includes("presigned_url")) {
+                        return {
+                            status: 200,
+                            data: { code: 0, data: { presigned_url: "https://download.example/map.gz" } },
+                        };
+                    }
+                    return { status: 200, data: archive };
+                },
+            },
+            host: "api.anthbot.com",
+            bearerToken: "Bearer token",
+        });
+
+        assert.deepEqual(await client.getDeviceMapArchive("SERIAL123", "map_SERIAL123_0"), archive);
+        assert.equal(requests[0].options.params.filename, "map_SERIAL123_0");
+        assert.equal(requests[0].options.params.sub_category, "multi_maps");
+        assert.equal(requests[1].options.responseType, "arraybuffer");
+    });
+
+    it("downloads the historical mowing path from the device path category", async () => {
+        const requests = [];
+        const pathFile = Buffer.from("0,0\n10,20\n", "utf8");
+        const client = new AnthbotCloudApiClient({
+            http: {
+                get: async (url, options) => {
+                    requests.push({ url, options });
+                    if (url.includes("presigned_url")) {
+                        return {
+                            status: 200,
+                            data: { code: 0, data: { presigned_url: "https://download.example/path.txt" } },
+                        };
+                    }
+                    return { status: 200, data: pathFile };
+                },
+            },
+            host: "api.anthbot.com",
+            bearerToken: "Bearer token",
+        });
+
+        assert.deepEqual(await client.getDeviceHistoryPath("SERIAL123"), pathFile);
+        assert.equal(requests[0].options.params.filename, "path_SERIAL123.txt");
+        assert.equal(requests[0].options.params.sub_category, "path");
+        assert.equal(requests[1].options.responseType, "arraybuffer");
+    });
+
     it("parses temporary IoT credentials from the Anthbot STS endpoint", async () => {
         const client = new AnthbotCloudApiClient({
             http: {
