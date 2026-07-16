@@ -279,6 +279,7 @@ describe("lib/adapter/state-updates", () => {
                     image: "data:image/png;base64,full",
                     imageWithRtkMask: "data:image/png;base64,mask",
                     imageWithMowedPath: "data:image/png;base64,path",
+                    mowedPath: '[{"x":100,"y":200,"flag":5}]',
                 },
             },
             data: { _area_definition: {} },
@@ -291,6 +292,7 @@ describe("lib/adapter/state-updates", () => {
         assert.equal(updates["map.image"], "data:image/png;base64,full");
         assert.equal(updates["map.imageWithRtkMask"], "data:image/png;base64,mask");
         assert.equal(updates["map.imageWithMowedPath"], "data:image/png;base64,path");
+        assert.equal(updates["map.mowedPath"], '[{"x":100,"y":200,"flag":5}]');
         assert.equal(updates["location.charger.x"], null);
         assert.equal(updates["location.charger.y"], null);
 
@@ -298,6 +300,7 @@ describe("lib/adapter/state-updates", () => {
         assert.equal(Object.hasOwn(withoutMap, "map.image"), false);
         assert.equal(Object.hasOwn(withoutMap, "map.imageWithRtkMask"), false);
         assert.equal(Object.hasOwn(withoutMap, "map.imageWithMowedPath"), false);
+        assert.equal(Object.hasOwn(withoutMap, "map.mowedPath"), false);
         assert.equal(Object.hasOwn(withoutMap, "location.charger.x"), false);
         assert.equal(Object.hasOwn(withoutMap, "location.charger.y"), false);
 
@@ -305,5 +308,6 @@ describe("lib/adapter/state-updates", () => {
         assert.equal(withoutPath["map.image"], "data:image/png;base64,full");
         assert.equal(withoutPath["map.imageWithRtkMask"], "data:image/png;base64,mask");
         assert.equal(Object.hasOwn(withoutPath, "map.imageWithMowedPath"), false);
+        assert.equal(Object.hasOwn(withoutPath, "map.mowedPath"), false);
     });
 });

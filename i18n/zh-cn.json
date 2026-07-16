@@ -20,6 +20,7 @@
   "Full map image": "完整地图图像",
   "Map image with RTK mask": "带 RTK 掩膜的地图图像",
   "Map image with mowed path": "带割草路径的地图图像",
+  "Historical mowing path": "历史割草路径",
   "GPS location": "GPS定位",
   "Pose location": "姿势位置",
   "Charger location": "充电器位置",

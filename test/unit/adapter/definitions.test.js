@@ -33,6 +33,13 @@ describe("lib/adapter/definitions map states", () => {
             write: false,
             name: "Map image with mowed path",
         });
+        assert.deepEqual(states["map.mowedPath"], {
+            type: "string",
+            role: "json",
+            read: true,
+            write: false,
+            name: "Historical mowing path",
+        });
         assert.equal(states["location.pose.x"].unit, "m");
         assert.equal(states["location.pose.y"].unit, "m");
     });
