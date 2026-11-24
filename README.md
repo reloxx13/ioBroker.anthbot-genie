@@ -406,6 +406,7 @@ For automatic zones, the adapter resolves the selected zone IDs or names to the 
 ### **WORK IN PROGRESS**
 
 - Treat a reported shutdown as offline even if the cloud online flag remains set.
+- Read M-series network and online states and treat explicitly disconnected WLAN and cellular as offline.
 
 - Add separate read-only PNG map image states for the native map, RTK mowed-area mask, and downloaded historical mowing path.
 - Add an opt-in Admin checkbox for map downloads and rendering because map generation can use significant CPU.

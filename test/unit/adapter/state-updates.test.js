@@ -210,7 +210,9 @@ describe("lib/adapter/state-updates", () => {
             mapping_task: { state: "running" },
             mowing_time: { value: 7200 },
             mowing_area: { value: 456.7 },
-            online: true,
+            online: { value: 1 },
+            net_state: { wifi_state: 0, "4g_state": 1 },
+            wifi_state: 1,
             _service_reported: { cmd: "find_robot" },
             _area_definition: context.areaDefinition,
         };
@@ -222,6 +224,21 @@ describe("lib/adapter/state-updates", () => {
             errorDescriptionLanguage: "English",
             now,
         });
+
+        assert.equal(updates["info.online"], true);
+        assert.equal(updates["diagnostics.network.wifiConnected"], false);
+        assert.equal(updates["diagnostics.network.cellularConnected"], true);
+
+        for (const [net_state, online] of [[{ wifi_state: 0, "4g_state": 0 }, false], [{ wifi_state: 0 }, true]]) {
+            const networkUpdates = buildDeviceStateUpdates({
+                context,
+                data: { ...data, net_state },
+                eventCodeCache: null,
+                errorDescriptionLanguage: "English",
+                now,
+            });
+            assert.equal(networkUpdates["info.online"], online);
+        }
 
         assert.equal(updates["metrics.status.modeRaw"], "charge");
         assert.equal(updates["metrics.status.robotRaw"], "charge");
