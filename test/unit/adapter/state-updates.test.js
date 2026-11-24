@@ -144,6 +144,16 @@ describe("lib/adapter/state-updates", () => {
         assert.equal(updates["info.alias"], "Front Yard");
         assert.equal(updates["info.model"], "Anthbot Genie 600");
         assert.equal(updates["info.online"], true);
+        for (const field of ["robot_sta", "mode"]) {
+            const shutdownUpdates = buildDeviceStateUpdates({
+                context,
+                data: { ...data, [field]: { value: "shutdown" } },
+                eventCodeCache,
+                errorDescriptionLanguage: "English",
+                now,
+            });
+            assert.equal(shutdownUpdates["info.online"], false);
+        }
         assert.equal(updates["info.lastPoll"], now.toISOString());
         assert.equal(updates["metrics.status.mower"], "mowing");
         assert.equal(updates["metrics.error.description"], "The machine is stuck");
